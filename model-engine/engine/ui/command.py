@@ -9,6 +9,7 @@ Supports:
 - Parameter subgroups via ParamSpec.group
 - Last-used values + last generator (engine/prefs.py)
 - Live preview for B-rep only (mesh/SDF never preview — they write STLs)
+- Named bodies after build for export / browser clarity
 """
 
 import os
@@ -34,11 +35,8 @@ _PANEL_ID = "SolidCreatePanel"
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _RESOURCE_FOLDER = os.path.abspath(os.path.join(_THIS_DIR, "..", "..", "resources", "CreatePrintObject"))
 
-# Fusion drops event handlers that aren't referenced from somewhere long-lived,
-# so every handler we create gets appended here to keep it alive.
 _handlers = []
 
-# Extra explicit skip list (mesh backends should also set supports_preview=False).
 _SKIP_PREVIEW_IDS = {
     "planter_with_tray",
     "planter_textured",
@@ -89,7 +87,6 @@ def _remove_existing_ui():
 
 
 def _add_param_input(children: adsk.core.CommandInputs, spec, saved_value=None) -> None:
-    """Adds a single parameter input under `children`, optionally prefilled."""
     input_id = f"param_{spec.name}"
     default = saved_value if saved_value is not None else spec.default
 
@@ -134,10 +131,6 @@ def _add_param_input(children: adsk.core.CommandInputs, spec, saved_value=None) 
 
 def _rebuild_param_inputs(children: adsk.core.CommandInputs, generator,
                            saved: dict = None) -> None:
-    """Clears out the parameter group and rebuilds it for the given generator.
-
-    Parameters with a non-empty `group` are placed under nested GroupCommandInputs.
-    """
     saved = saved or {}
     for i in range(children.count - 1, -1, -1):
         children.item(i).deleteMe()
@@ -178,7 +171,6 @@ def _read_param_value(input_, spec):
 
 
 def _find_param_input(inputs: adsk.core.CommandInputs, name: str):
-    """Finds a param input by id, including nested group children."""
     target = f"param_{name}"
     direct = inputs.itemById(target)
     if direct:
@@ -208,7 +200,6 @@ def _collect_params(inputs: adsk.core.CommandInputs, generator) -> dict:
 
 
 def _should_skip_preview(generator) -> bool:
-    """Mesh/SDF backends write files via subprocess — never safe in preview."""
     if not getattr(generator, "supports_preview", True):
         return True
     gen_id = getattr(generator, "id", "") or ""
@@ -222,7 +213,6 @@ def _should_skip_preview(generator) -> bool:
 
 
 def _build_into_design(generator, params: dict):
-    """Shared geometry path for execute and executePreview."""
     design = adsk.fusion.Design.cast(_app.activeProduct)
     prior_max_x = geometry_utils.max_body_x(design)
 
@@ -233,6 +223,7 @@ def _build_into_design(generator, params: dict):
 
     new_bodies = [component.bRepBodies.item(i)
                   for i in range(pre_count, component.bRepBodies.count)]
+    geometry_utils.name_bodies(new_bodies, generator.display_name)
     geometry_utils.place_clear_of_existing(component, new_bodies, prior_max_x)
 
     for i in range(pre_sketches, component.sketches.count):
@@ -245,7 +236,6 @@ def _default_generator_index(generator_list) -> int:
         for i, gen in enumerate(generator_list):
             if gen.id == last_id:
                 return i
-    # Prefer a safe B-rep starter over the first alphabetical mesh item (Anchor).
     for preferred in ("planter_basic", "planter_with_tray", "aquarium_treasure_chest"):
         for i, gen in enumerate(generator_list):
             if gen.id == preferred:
@@ -321,12 +311,6 @@ class _InputChangedHandler(adsk.core.InputChangedEventHandler):
 
 
 class _PreviewHandler(adsk.core.CommandEventHandler):
-    """Shows temporary B-rep geometry while the dialog is open.
-
-    Always leaves isValidResult = False so OK runs execute for the permanent
-    build. Mesh/SDF generators are never previewed (they write STL files).
-    """
-
     def __init__(self, generator_list):
         super().__init__()
         self._generator_list = generator_list
