@@ -9,6 +9,8 @@ Both pieces print flat (box on its base, lid plate-down). Bodies are placed
 side-by-side for easy multi-body export.
 """
 
+import math
+
 import adsk.core
 
 from .. import geometry_utils
@@ -46,48 +48,14 @@ def _draw_rounded_rect(sketch, x0, y0, x1, y1, corner_r, z=0.0):
 
     lines = sketch.sketchCurves.sketchLines
     arcs = sketch.sketchCurves.sketchArcs
+    k = math.sqrt(2.0) / 2.0
 
-    # Straight edges between tangent points, then a quarter-arc at each corner.
-    # Bottom edge
-    lines.addByTwoPoints(pt(x0 + r, y0), pt(x1 - r, y0))
-    # Bottom-right arc
-    arcs.addByThreePoints(pt(x1 - r, y0), pt(x1, y0 + r * 0.4142 + r * 0.5858 * 0),
-                          pt(x1, y0 + r))
-    # Actually use true midpoint of quarter circle: (x1 - r + r*cos(45), y0 + r*sin(45))
-    # Rebuild arcs properly:
-
-
-def _draw_rounded_rect(sketch, x0, y0, x1, y1, corner_r, z=0.0):
-    """Axis-aligned rectangle with optional corner arcs."""
-    if corner_r < 1e-6:
-        _draw_rect(sketch, x0, y0, x1, y1, z)
-        return
-
-    max_r = min(abs(x1 - x0), abs(y1 - y0)) / 2.0 - 1e-4
-    r = min(corner_r, max_r)
-    if r < 1e-6:
-        _draw_rect(sketch, x0, y0, x1, y1, z)
-        return
-
-    import math
-
-    def pt(x, y):
-        return sketch.modelToSketchSpace(adsk.core.Point3D.create(x, y, z))
-
-    lines = sketch.sketchCurves.sketchLines
-    arcs = sketch.sketchCurves.sketchArcs
-    k = math.sqrt(2.0) / 2.0  # cos/sin 45deg for arc midpoints
-
-    # Bottom
     lines.addByTwoPoints(pt(x0 + r, y0), pt(x1 - r, y0))
     arcs.addByThreePoints(pt(x1 - r, y0), pt(x1 - r + r * k, y0 + r * k), pt(x1, y0 + r))
-    # Right
     lines.addByTwoPoints(pt(x1, y0 + r), pt(x1, y1 - r))
     arcs.addByThreePoints(pt(x1, y1 - r), pt(x1 - r + r * k, y1 - r + r * k), pt(x1 - r, y1))
-    # Top
     lines.addByTwoPoints(pt(x1 - r, y1), pt(x0 + r, y1))
     arcs.addByThreePoints(pt(x0 + r, y1), pt(x0 + r - r * k, y1 - r + r * k), pt(x0, y1 - r))
-    # Left
     lines.addByTwoPoints(pt(x0, y1 - r), pt(x0, y0 + r))
     arcs.addByThreePoints(pt(x0, y0 + r), pt(x0 + r - r * k, y0 + r * k), pt(x0 + r, y0))
 
