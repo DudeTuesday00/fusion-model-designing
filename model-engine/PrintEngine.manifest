@@ -1,0 +1,11 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "addin",
+    "author": "drodge00",
+    "description": {
+        "": "Print Engine - parametric generator for 3D-printable planters, creatures, and aquarium decor."
+    },
+    "supportedOS": "windows|mac",
+    "editEnabled": true,
+    "autorun": false
+}
