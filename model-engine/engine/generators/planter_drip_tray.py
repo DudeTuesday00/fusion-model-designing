@@ -102,21 +102,23 @@ def add_l_ribs(component, tray_body, rib_count, rib_w, foot_in_r, leg_inner_r,
 
 FOOT_PARAMS = [
     ParamSpec(name="base_style", label="Base Style", type="choice", default="Flat",
-              choices=["Flat", "Bun Feet", "Block Feet", "Hex Feet", "Foot Ring"]),
+              choices=["Flat", "Bun Feet", "Block Feet", "Hex Feet", "Foot Ring"],
+              group="Feet"),
     ParamSpec(name="base_attachment", label="Feet Attachment", type="choice",
               default="Separate (glue-on)",
-              choices=["Separate (glue-on)", "Integrated (needs supports)"]),
+              choices=["Separate (glue-on)", "Integrated (needs supports)"],
+              group="Feet"),
     ParamSpec(name="foot_height", label="Foot Height", type="float",
-              default=5.0, min=2.0, max=20.0, unit="mm"),
+              default=5.0, min=2.0, max=20.0, unit="mm", group="Feet"),
     ParamSpec(name="foot_size", label="Foot Size", type="float",
-              default=12.0, min=6.0, max=30.0, unit="mm"),
+              default=12.0, min=6.0, max=30.0, unit="mm", group="Feet"),
     ParamSpec(name="foot_count", label="Feet (Round trays)", type="int",
-              default=4, min=3, max=8),
+              default=4, min=3, max=8, group="Feet"),
 ]
 
 RIM_PARAMS = [
     ParamSpec(name="rim_finish", label="Rim Finish (Round only)", type="choice",
-              default="Plain", choices=["Plain", "Scalloped"]),
+              default="Plain", choices=["Plain", "Scalloped"], group="Rim"),
 ]
 
 
