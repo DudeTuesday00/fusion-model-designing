@@ -9,11 +9,13 @@ import traceback
 import adsk.core
 
 from .engine.ui import command as create_object_command
+from .engine.ui import export_command
 
 
 def run(context):
     try:
         create_object_command.start()
+        export_command.start()
     except Exception:
         _show_error("Print Engine failed to start")
 
@@ -21,6 +23,7 @@ def run(context):
 def stop(context):
     try:
         create_object_command.stop()
+        export_command.stop()
     except Exception:
         _show_error("Print Engine failed to stop cleanly")
 
