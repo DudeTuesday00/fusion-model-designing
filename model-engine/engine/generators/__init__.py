@@ -19,6 +19,7 @@ from . import planter_tray_mesh  # noqa: F401
 from . import planter_insert  # noqa: F401
 from . import planter_textured  # noqa: F401
 from . import planter_with_tray  # noqa: F401
+from . import box_basic  # noqa: F401
 from . import aquarium_treasure_chest  # noqa: F401
 from . import aquarium_castle_tower  # noqa: F401
 from . import aquarium_mesh_decor  # noqa: F401
