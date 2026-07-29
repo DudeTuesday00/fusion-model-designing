@@ -8,7 +8,7 @@ here automatically - this file has no knowledge of specific generators.
 Supports:
 - Parameter subgroups via ParamSpec.group
 - Last-used values loaded/saved per generator (engine/prefs.py)
-- Live preview via executePreview (rebuilds geometry as parameters change)
+- Live preview via executePreview (temporary only; OK always runs execute)
 """
 
 import os
@@ -37,6 +37,15 @@ _RESOURCE_FOLDER = os.path.abspath(os.path.join(_THIS_DIR, "..", "..", "resource
 # Fusion drops event handlers that aren't referenced from somewhere long-lived,
 # so every handler we create gets appended here to keep it alive.
 _handlers = []
+
+# Generators that are too heavy or non-transactional for live preview.
+_SKIP_PREVIEW_IDS = {
+    "planter_with_tray",  # full planter + tray is too expensive on every change
+    "planter_textured",
+    "planter_drip_tray_textured",
+    "planter_tray_mesh",
+    "creature_axolotl",
+}
 
 
 def start():
@@ -152,26 +161,33 @@ def _read_param_value(input_, spec):
     if spec.type in ("int", "bool", "string"):
         return input_.value
     if spec.type == "choice":
-        return input_.selectedItem.name
+        selected = input_.selectedItem
+        if selected is None:
+            raise ValueError(f"No selection for '{spec.label}'.")
+        return selected.name
     raise ValueError(f"Unknown ParamSpec type: {spec.type}")
 
 
 def _find_param_input(inputs: adsk.core.CommandInputs, name: str):
     """Finds a param input by id, including nested group children."""
-    direct = inputs.itemById(f"param_{name}")
+    target = f"param_{name}"
+    direct = inputs.itemById(target)
     if direct:
         return direct
     for i in range(inputs.count):
         item = inputs.item(i)
-        if hasattr(item, "children"):
-            nested = item.children.itemById(f"param_{name}")
+        group = adsk.core.GroupCommandInput.cast(item)
+        if group:
+            nested = group.children.itemById(target)
             if nested:
                 return nested
     return None
 
 
 def _collect_params(inputs: adsk.core.CommandInputs, generator) -> dict:
-    params_group = inputs.itemById("paramsGroup")
+    params_group = adsk.core.GroupCommandInput.cast(inputs.itemById("paramsGroup"))
+    if not params_group:
+        raise ValueError("Parameters group is missing from the dialog.")
     children = params_group.children
     params = {}
     for spec in generator.parameters:
@@ -180,6 +196,17 @@ def _collect_params(inputs: adsk.core.CommandInputs, generator) -> dict:
             raise ValueError(f"Missing dialog input for parameter '{spec.name}'.")
         params[spec.name] = _read_param_value(param_input, spec)
     return params
+
+
+def _should_skip_preview(generator) -> bool:
+    gen_id = getattr(generator, "id", "") or ""
+    if gen_id in _SKIP_PREVIEW_IDS:
+        return True
+    if gen_id.endswith("_textured") or "mesh" in gen_id:
+        return True
+    if getattr(generator, "category", "") in ("Creature",):
+        return True
+    return False
 
 
 def _build_into_design(generator, params: dict):
@@ -211,9 +238,6 @@ class _CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             cmd = args.command
             inputs = cmd.commandInputs
 
-            # Preview can be expensive for mesh generators; still enable so
-            # B-rep objects update live. Mesh backends will show the final
-            # message box only on OK.
             cmd.isExecutedWhenPreEmpted = False
 
             dropdown = inputs.addDropDownCommandInput(
@@ -255,17 +279,21 @@ class _InputChangedHandler(adsk.core.InputChangedEventHandler):
             dropdown = args.inputs.itemById("generatorDropdown")
             generator = self._generator_list[dropdown.selectedItem.index]
             params_group = args.inputs.itemById("paramsGroup")
+            group = adsk.core.GroupCommandInput.cast(params_group)
+            if not group:
+                return
             saved = prefs.load_for(generator.id)
-            _rebuild_param_inputs(params_group.children, generator, saved)
+            _rebuild_param_inputs(group.children, generator, saved)
         except Exception:
             _ui.messageBox(f"Print Engine failed to update dialog:\n{traceback.format_exc()}")
 
 
 class _PreviewHandler(adsk.core.CommandEventHandler):
-    """Rebuilds geometry while the dialog is open so changes are visible live.
+    """Shows temporary geometry while the dialog is open.
 
-    Fusion discards preview geometry if the user cancels; OK promotes it via
-    execute (we rebuild there too for a clean final result).
+    IMPORTANT: always leave isValidResult = False so Fusion still fires the
+    execute handler on OK. If isValidResult is True, Fusion may skip execute
+    entirely, which is why OK appeared to do nothing for complex builds.
     """
 
     def __init__(self, generator_list):
@@ -273,27 +301,23 @@ class _PreviewHandler(adsk.core.CommandEventHandler):
         self._generator_list = generator_list
 
     def notify(self, args: adsk.core.CommandEventArgs):
+        # Never treat preview as the final result — execute always owns the
+        # permanent build + preference save.
+        args.isValidResult = False
         try:
             inputs = args.command.commandInputs
             dropdown = inputs.itemById("generatorDropdown")
             generator = self._generator_list[dropdown.selectedItem.index]
 
-            # Skip live preview for mesh-backend generators - they write STLs
-            # via subprocess and are too heavy / non-transactional for preview.
-            if getattr(generator, "id", "").endswith("_textured") or \
-               "mesh" in getattr(generator, "id", "") or \
-               generator.category in ("Creature",):
-                args.isValidResult = False
+            if _should_skip_preview(generator):
                 return
 
             params = _collect_params(inputs, generator)
             _build_into_design(generator, params)
-            args.isValidResult = True
         except ValueError:
-            # Invalid parameters during drag: keep previous valid preview.
-            args.isValidResult = False
+            pass  # invalid params during edit — no preview until fixed
         except Exception:
-            args.isValidResult = False
+            pass  # keep dialog responsive; execute will surface real errors
 
 
 class _ExecuteHandler(adsk.core.CommandEventHandler):
