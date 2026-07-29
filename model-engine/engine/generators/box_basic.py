@@ -9,10 +9,7 @@ Both pieces print flat (box on its base, lid plate-down). Bodies are placed
 side-by-side for easy multi-body export.
 """
 
-import math
-
 import adsk.core
-import adsk.fusion
 
 from .. import geometry_utils
 from ..base import Generator, ParamSpec
@@ -33,12 +30,11 @@ def _draw_rect(sketch, x0, y0, x1, y1, z=0.0):
 
 
 def _draw_rounded_rect(sketch, x0, y0, x1, y1, corner_r, z=0.0):
-    """Axis-aligned rectangle with optional corner fillets."""
+    """Axis-aligned rectangle with optional corner arcs (three-point)."""
     if corner_r < 1e-6:
         _draw_rect(sketch, x0, y0, x1, y1, z)
         return
 
-    # Clamp so fillets can't consume the whole side.
     max_r = min(abs(x1 - x0), abs(y1 - y0)) / 2.0 - 1e-4
     r = min(corner_r, max_r)
     if r < 1e-6:
@@ -48,43 +44,52 @@ def _draw_rounded_rect(sketch, x0, y0, x1, y1, corner_r, z=0.0):
     def pt(x, y):
         return sketch.modelToSketchSpace(adsk.core.Point3D.create(x, y, z))
 
-    # Straight segments between fillet tangent points.
-    corners = [
-        (x0 + r, y0, x1 - r, y0),  # bottom
-        (x1, y0 + r, x1, y1 - r),  # right
-        (x1 - r, y1, x0 + r, y1),  # top
-        (x0, y1 - r, x0, y0 + r),  # left
-    ]
     lines = sketch.sketchCurves.sketchLines
     arcs = sketch.sketchCurves.sketchArcs
-    segs = []
-    for (ax, ay, bx, by) in corners:
-        segs.append(lines.addByTwoPoints(pt(ax, ay), pt(bx, by)))
 
-    # Fillet at each corner: end of previous segment to start of next.
-    corner_pts = [
-        pt(x0 + r, y0),  # after bottom-left fillet start along bottom
-        pt(x1, y0 + r),
-        pt(x1 - r, y1),
-        pt(x0, y1 - r),
-    ]
-    # Arc centers at the four corners inset by r.
-    centers = [
-        (x0 + r, y0 + r),
-        (x1 - r, y0 + r),
-        (x1 - r, y1 - r),
-        (x0 + r, y1 - r),
-    ]
-    # Build with lines + three-point arcs at corners for robustness.
-    # Clear and redraw as polyline with arc corners via fillet API on lines.
-    # The segment list already has the four sides; fillet each corner.
-    for i in range(4):
-        try:
-            arcs.addFillet(segs[i - 1], segs[i - 1].endSketchPoint.geometry,
-                           segs[i], segs[i].startSketchPoint.geometry, r)
-        except Exception:
-            # Fall back: leave sharp corner rather than fail the whole box.
-            pass
+    # Straight edges between tangent points, then a quarter-arc at each corner.
+    # Bottom edge
+    lines.addByTwoPoints(pt(x0 + r, y0), pt(x1 - r, y0))
+    # Bottom-right arc
+    arcs.addByThreePoints(pt(x1 - r, y0), pt(x1, y0 + r * 0.4142 + r * 0.5858 * 0),
+                          pt(x1, y0 + r))
+    # Actually use true midpoint of quarter circle: (x1 - r + r*cos(45), y0 + r*sin(45))
+    # Rebuild arcs properly:
+
+
+def _draw_rounded_rect(sketch, x0, y0, x1, y1, corner_r, z=0.0):
+    """Axis-aligned rectangle with optional corner arcs."""
+    if corner_r < 1e-6:
+        _draw_rect(sketch, x0, y0, x1, y1, z)
+        return
+
+    max_r = min(abs(x1 - x0), abs(y1 - y0)) / 2.0 - 1e-4
+    r = min(corner_r, max_r)
+    if r < 1e-6:
+        _draw_rect(sketch, x0, y0, x1, y1, z)
+        return
+
+    import math
+
+    def pt(x, y):
+        return sketch.modelToSketchSpace(adsk.core.Point3D.create(x, y, z))
+
+    lines = sketch.sketchCurves.sketchLines
+    arcs = sketch.sketchCurves.sketchArcs
+    k = math.sqrt(2.0) / 2.0  # cos/sin 45deg for arc midpoints
+
+    # Bottom
+    lines.addByTwoPoints(pt(x0 + r, y0), pt(x1 - r, y0))
+    arcs.addByThreePoints(pt(x1 - r, y0), pt(x1 - r + r * k, y0 + r * k), pt(x1, y0 + r))
+    # Right
+    lines.addByTwoPoints(pt(x1, y0 + r), pt(x1, y1 - r))
+    arcs.addByThreePoints(pt(x1, y1 - r), pt(x1 - r + r * k, y1 - r + r * k), pt(x1 - r, y1))
+    # Top
+    lines.addByTwoPoints(pt(x1 - r, y1), pt(x0 + r, y1))
+    arcs.addByThreePoints(pt(x0 + r, y1), pt(x0 + r - r * k, y1 - r + r * k), pt(x0, y1 - r))
+    # Left
+    lines.addByTwoPoints(pt(x0, y1 - r), pt(x0, y0 + r))
+    arcs.addByThreePoints(pt(x0, y0 + r), pt(x0 + r - r * k, y0 + r * k), pt(x0 + r, y0))
 
 
 @register
@@ -161,14 +166,13 @@ class BasicBoxWithLid(Generator):
         if params["lid_style"] == "Flat Cap":
             lip_h = 0.0
 
-        # Park the lid beside the box along +Y.
         if shape == "Round":
-            lid_offset_y = length / 2.0 + length / 2.0 + overhang + mm(12.0)
+            lid_offset_y = length + overhang + mm(12.0)
             self._build_round_lid(
                 component, length / 2.0, wall, lid_t, lip_h, clearance, overhang,
                 lid_offset_y)
         else:
-            lid_offset_y = width / 2.0 + width / 2.0 + overhang + mm(12.0)
+            lid_offset_y = width + overhang + mm(12.0)
             self._build_rect_lid(
                 component, length, width, wall, lid_t, lip_h, clearance,
                 overhang, corner_r, lid_offset_y)
@@ -178,7 +182,6 @@ class BasicBoxWithLid(Generator):
         _draw_rounded_rect(sketch, -length / 2, -width / 2, length / 2, width / 2, corner_r)
         body = geometry_utils.extrude_profile(component, sketch.profiles.item(0), height)
 
-        # Cavity: from top of base through the open top (slight overshoot).
         overshoot = geometry_utils.mm(2.0)
         cavity_depth = height - base + overshoot
         cavity_plane = geometry_utils.offset_plane(component, base)
@@ -209,7 +212,6 @@ class BasicBoxWithLid(Generator):
 
     def _build_rect_lid(self, component, length, width, wall, lid_t, lip_h,
                          clearance, overhang, corner_r, offset_y):
-        # Lid plate centered at (0, offset_y).
         plate_l = length + 2.0 * overhang
         plate_w = width + 2.0 * overhang
         plate_r = corner_r + overhang if corner_r > 0 else 0.0
@@ -227,8 +229,6 @@ class BasicBoxWithLid(Generator):
         if lip_h <= 1e-6:
             return
 
-        # Lip outer sits inside the box opening by clearance on each side.
-        # Box inner size = outer - 2*wall; lip outer = inner - 2*clearance.
         lip_outer_l = length - 2.0 * wall - 2.0 * clearance
         lip_outer_w = width - 2.0 * wall - 2.0 * clearance
         if lip_outer_l < geometry_utils.mm(8.0) or lip_outer_w < geometry_utils.mm(8.0):
@@ -239,43 +239,30 @@ class BasicBoxWithLid(Generator):
         lip_wall = min(wall, geometry_utils.mm(2.0))
         lip_inner_l = lip_outer_l - 2.0 * lip_wall
         lip_inner_w = lip_outer_w - 2.0 * lip_wall
-        if lip_inner_l < geometry_utils.mm(4.0) or lip_inner_w < geometry_utils.mm(4.0):
-            # Solid lip (no hollow) when the box is small.
-            lip_sketch = geometry_utils.sketch_on_xy(component)
-            lip_r = max(corner_r - wall - clearance, 0.0)
-            _draw_rounded_rect(
-                lip_sketch,
-                -lip_outer_l / 2, offset_y - lip_outer_w / 2,
-                lip_outer_l / 2, offset_y + lip_outer_w / 2,
-                lip_r)
-            geometry_utils.extrude_join(
-                component, lip_sketch.profiles.item(0), lip_h, target_body=lid_body)
-            return
-
-        # Hollow rectangular lip fused onto the underside of the plate.
-        # Build as new body then join so we control the target.
-        lip_sketch = geometry_utils.sketch_on_xy(component)
         lip_r = max(corner_r - wall - clearance, 0.0)
+
+        lip_sketch = geometry_utils.sketch_on_xy(component)
         _draw_rounded_rect(
             lip_sketch,
             -lip_outer_l / 2, offset_y - lip_outer_w / 2,
             lip_outer_l / 2, offset_y + lip_outer_w / 2,
             lip_r)
-        inner_r = max(lip_r - lip_wall, 0.0)
-        _draw_rounded_rect(
-            lip_sketch,
-            -lip_inner_l / 2, offset_y - lip_inner_w / 2,
-            lip_inner_l / 2, offset_y + lip_inner_w / 2,
-            inner_r)
 
-        # Profile with a hole: the region between outer and inner loops.
-        profiles = []
-        for i in range(lip_sketch.profiles.count):
-            prof = lip_sketch.profiles.item(i)
-            if prof.profileLoops.count == 2:
-                profiles.append(prof)
-        if not profiles:
-            # Fallback: solid lip if profile detection fails.
+        if lip_inner_l >= geometry_utils.mm(4.0) and lip_inner_w >= geometry_utils.mm(4.0):
+            inner_r = max(lip_r - lip_wall, 0.0)
+            _draw_rounded_rect(
+                lip_sketch,
+                -lip_inner_l / 2, offset_y - lip_inner_w / 2,
+                lip_inner_l / 2, offset_y + lip_inner_w / 2,
+                inner_r)
+            profiles = [
+                lip_sketch.profiles.item(i)
+                for i in range(lip_sketch.profiles.count)
+                if lip_sketch.profiles.item(i).profileLoops.count == 2
+            ]
+            if not profiles:
+                profiles = [lip_sketch.profiles.item(0)]
+        else:
             profiles = [lip_sketch.profiles.item(0)]
 
         geometry_utils.extrude_join(
