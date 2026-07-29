@@ -9,8 +9,6 @@ Both pieces print flat (box on its base, lid plate-down). Bodies are placed
 side-by-side for easy multi-body export.
 """
 
-import math
-
 import adsk.core
 
 from .. import geometry_utils
@@ -19,45 +17,59 @@ from ..printability import require_base_below_height, require_min_wall
 from ..registry import register
 
 
-def _draw_rect(sketch, x0, y0, x1, y1, z=0.0):
+def _draw_rounded_rect(sketch, x0, y0, x1, y1, corner_r, z=0.0):
+    """Axis-aligned rectangle; optional corner fillets (same pattern as polygons).
+
+    Draw four lines first so Fusion always has a closed loop, then fillet the
+    corners. Three-point arcs alone can leave gaps that produce zero profiles.
+    """
     pts = [
         sketch.modelToSketchSpace(adsk.core.Point3D.create(x0, y0, z)),
         sketch.modelToSketchSpace(adsk.core.Point3D.create(x1, y0, z)),
         sketch.modelToSketchSpace(adsk.core.Point3D.create(x1, y1, z)),
         sketch.modelToSketchSpace(adsk.core.Point3D.create(x0, y1, z)),
     ]
-    lines = sketch.sketchCurves.sketchLines
-    for i in range(4):
-        lines.addByTwoPoints(pts[i], pts[(i + 1) % 4])
+    lines_col = sketch.sketchCurves.sketchLines
+    lines = [lines_col.addByTwoPoints(pts[i], pts[(i + 1) % 4]) for i in range(4)]
 
-
-def _draw_rounded_rect(sketch, x0, y0, x1, y1, corner_r, z=0.0):
-    """Axis-aligned rectangle with optional corner arcs (three-point)."""
     if corner_r < 1e-6:
-        _draw_rect(sketch, x0, y0, x1, y1, z)
         return
 
     max_r = min(abs(x1 - x0), abs(y1 - y0)) / 2.0 - 1e-4
     r = min(corner_r, max_r)
     if r < 1e-6:
-        _draw_rect(sketch, x0, y0, x1, y1, z)
         return
 
-    def pt(x, y):
-        return sketch.modelToSketchSpace(adsk.core.Point3D.create(x, y, z))
-
-    lines = sketch.sketchCurves.sketchLines
     arcs = sketch.sketchCurves.sketchArcs
-    k = math.sqrt(2.0) / 2.0
+    for i in range(4):
+        # Fillet the corner where the previous line ends and this one starts.
+        arcs.addFillet(lines[i - 1], pts[i], lines[i], pts[i], r)
 
-    lines.addByTwoPoints(pt(x0 + r, y0), pt(x1 - r, y0))
-    arcs.addByThreePoints(pt(x1 - r, y0), pt(x1 - r + r * k, y0 + r * k), pt(x1, y0 + r))
-    lines.addByTwoPoints(pt(x1, y0 + r), pt(x1, y1 - r))
-    arcs.addByThreePoints(pt(x1, y1 - r), pt(x1 - r + r * k, y1 - r + r * k), pt(x1 - r, y1))
-    lines.addByTwoPoints(pt(x1 - r, y1), pt(x0 + r, y1))
-    arcs.addByThreePoints(pt(x0 + r, y1), pt(x0 + r - r * k, y1 - r + r * k), pt(x0, y1 - r))
-    lines.addByTwoPoints(pt(x0, y1 - r), pt(x0, y0 + r))
-    arcs.addByThreePoints(pt(x0, y0 + r), pt(x0 + r - r * k, y0 + r * k), pt(x0 + r, y0))
+
+def _outer_profile(sketch):
+    """Return the largest profile (solid outer) from a sketch."""
+    if sketch.profiles.count == 0:
+        raise ValueError(
+            "Sketch has no closed profile - check corner radius and dimensions."
+        )
+    best = sketch.profiles.item(0)
+    best_area = best.areaProperties().area if sketch.profiles.count else 0.0
+    for i in range(1, sketch.profiles.count):
+        prof = sketch.profiles.item(i)
+        area = prof.areaProperties().area
+        if area > best_area:
+            best = prof
+            best_area = area
+    return best
+
+
+def _ring_profile(sketch):
+    """Prefer a profile with two loops (outer + hole) for hollow lips."""
+    for i in range(sketch.profiles.count):
+        prof = sketch.profiles.item(i)
+        if prof.profileLoops.count >= 2:
+            return prof
+    return _outer_profile(sketch)
 
 
 @register
@@ -148,7 +160,7 @@ class BasicBoxWithLid(Generator):
     def _build_rect_box(self, component, length, width, height, wall, base, corner_r):
         sketch = geometry_utils.sketch_on_xy(component)
         _draw_rounded_rect(sketch, -length / 2, -width / 2, length / 2, width / 2, corner_r)
-        body = geometry_utils.extrude_profile(component, sketch.profiles.item(0), height)
+        body = geometry_utils.extrude_profile(component, _outer_profile(sketch), height)
 
         overshoot = geometry_utils.mm(2.0)
         cavity_depth = height - base + overshoot
@@ -161,7 +173,7 @@ class BasicBoxWithLid(Generator):
             length / 2 - wall, width / 2 - wall,
             inner_r, z=base)
         geometry_utils.extrude_cut(
-            component, cavity_sketch.profiles.item(0), cavity_depth,
+            component, _outer_profile(cavity_sketch), cavity_depth,
             participants=[body])
         return body
 
@@ -191,7 +203,7 @@ class BasicBoxWithLid(Generator):
             plate_l / 2, offset_y + plate_w / 2,
             plate_r)
         lid_body = geometry_utils.extrude_profile(
-            component, sketch.profiles.item(0), lid_t)
+            component, _outer_profile(sketch), lid_t)
         lid_body.name = "Lid"
 
         if lip_h <= 1e-6:
@@ -223,18 +235,12 @@ class BasicBoxWithLid(Generator):
                 -lip_inner_l / 2, offset_y - lip_inner_w / 2,
                 lip_inner_l / 2, offset_y + lip_inner_w / 2,
                 inner_r)
-            profiles = [
-                lip_sketch.profiles.item(i)
-                for i in range(lip_sketch.profiles.count)
-                if lip_sketch.profiles.item(i).profileLoops.count == 2
-            ]
-            if not profiles:
-                profiles = [lip_sketch.profiles.item(0)]
+            profile = _ring_profile(lip_sketch)
         else:
-            profiles = [lip_sketch.profiles.item(0)]
+            profile = _outer_profile(lip_sketch)
 
         geometry_utils.extrude_join(
-            component, geometry_utils.collect(profiles), lip_h, target_body=lid_body)
+            component, profile, lip_h, target_body=lid_body)
 
     def _build_round_lid(self, component, radius, wall, lid_t, lip_h,
                           clearance, overhang, offset_y):
@@ -263,15 +269,9 @@ class BasicBoxWithLid(Generator):
         geometry_utils.draw_circle(lip_sketch, lip_outer_r, center)
         if lip_inner_r > geometry_utils.mm(2.0):
             geometry_utils.draw_circle(lip_sketch, lip_inner_r, center)
-            profiles = [
-                lip_sketch.profiles.item(i)
-                for i in range(lip_sketch.profiles.count)
-                if lip_sketch.profiles.item(i).profileLoops.count == 2
-            ]
-            if not profiles:
-                profiles = [lip_sketch.profiles.item(0)]
+            profile = _ring_profile(lip_sketch)
         else:
-            profiles = [lip_sketch.profiles.item(0)]
+            profile = lip_sketch.profiles.item(0)
 
         geometry_utils.extrude_join(
-            component, geometry_utils.collect(profiles), lip_h, target_body=lid_body)
+            component, profile, lip_h, target_body=lid_body)
