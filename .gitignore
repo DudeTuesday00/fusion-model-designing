@@ -1,0 +1,35 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated mesh/STL output from the add-in
+generated/
+*.stl
+*.3mf
+
+# Local secrets / env
+.env
+*.local
+
+# Fusion / temp
+*.tmp
+*.bak

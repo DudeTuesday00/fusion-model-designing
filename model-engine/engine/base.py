@@ -24,6 +24,7 @@ class ParamSpec:
     max: Optional[float] = None
     unit: str = ""  # e.g. "mm" - only meaningful for float/int params
     choices: list = field(default_factory=list)  # only used when type == "choice"
+    group: str = ""  # optional dialog subgroup title (e.g. "Feet", "Rim")
 
 
 class Generator(ABC):
@@ -31,7 +32,8 @@ class Generator(ABC):
 
     Subclasses set `id`, `display_name`, `category`, and `parameters` as
     class attributes, then implement build(). See
-    engine/generators/example_cylinder.py for the simplest possible example.
+    engine/generators/example_cylinder.py for the simplest possible example
+    (kept as a reference; not registered in normal builds).
     """
 
     id: str = ""

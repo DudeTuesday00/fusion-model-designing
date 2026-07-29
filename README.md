@@ -9,11 +9,17 @@ from a dialog, enter a few parameters (height, diameter, style...), and it
 builds the geometry for you. New object types get added as separate
 generator modules without touching the core.
 
+## Development Roadmap
+
+See **[docs/ROADMAP.md](docs/ROADMAP.md)** for the current improvement phases (1–3)
+and planned product families (storage boxes + lids, expanded planter systems,
+desk/office ecosystem, and more).
+
 ## What's here so far
 
 This first pass is the **engine core**, not a finished product:
 
-- A working Fusion 360 add-in (`PrintEngine/`) with one command, "Create
+- A working Fusion 360 add-in (`model-engine/`) with one command, "Create
   Print Object", added to the CREATE panel.
 - A generator plugin system: any object type implements a small `Generator`
   class describing its parameters and how to build its geometry.
@@ -94,19 +100,16 @@ This first pass is the **engine core**, not a finished product:
   Requirement: a system Python with numpy (found automatically; install
   from python.org and `pip install numpy` if missing). Fusion's own Python
   can't run numpy, so the add-in generates the mesh in a subprocess via
-  `PrintEngine/mesh_engine/generate.py` - that script also works standalone
+  `model-engine/mesh_engine/generate.py` - that script also works standalone
   from a terminal with a JSON parameter file.
-- One placeholder generator (a plain parametric cylinder) kept as the
-  simplest possible reference for how to write a generator.
 
 ## Installing the add-in in Fusion 360
 
 1. Open Fusion 360.
 2. Go to the **Utilities** tab → **Scripts and Add-Ins** (or press `Shift+S`).
 3. Select the **Add-Ins** tab (not Scripts).
-4. Click the green **+** button and browse to select the `PrintEngine`
-   folder (the one containing `PrintEngine.py` and `PrintEngine.manifest`,
-   i.e. `Fusion 360/PrintEngine`).
+4. Click the green **+** button and browse to select the `model-engine`
+   folder (the one containing `PrintEngine.py` and `PrintEngine.manifest`).
 5. Select "PrintEngine" in the list and click **Run**.
 6. Switch to the **Design** workspace → **CREATE** panel. You should see a
    new **Create Print Object** button.
@@ -132,15 +135,17 @@ Fusion does **not** hot-reload add-ins. After changing any `.py` file:
 2. Select PrintEngine and click **Stop**, then **Run** again.
 
 If something goes wrong, this add-in shows a message box with the Python
-traceback rather than failing silently - read that first. You can also open
-**Utilities → Add-Ins → Scripts and Add-Ins → ... (Text Commands)**, or the
-**TEXT COMMANDS** palette (`Shift+Ctrl+Alt+C` in some versions, or via the
-`View` menu), to see general Fusion API log output.
+traceback rather than failing silently - read that first. User-facing
+validation errors (bad parameter combinations) are shown as a clean message
+without a full traceback. You can also open **Utilities → Add-Ins → Scripts
+and Add-Ins → ... (Text Commands)**, or the **TEXT COMMANDS** palette
+(`Shift+Ctrl+Alt+C` in some versions, or via the `View` menu), to see general
+Fusion API log output.
 
 ## Project layout
 
 ```
-PrintEngine/
+model-engine/
   PrintEngine.py            entry point Fusion calls: run(context) / stop(context)
   PrintEngine.manifest       add-in manifest (tells Fusion this is a Python add-in)
   engine/
@@ -148,16 +153,18 @@ PrintEngine/
     registry.py              tracks every generator that's been registered
     geometry_utils.py         helpers wrapping common Fusion API calls
     generators/               one module per object type - this is where you add new ones
-      example_cylinder.py     placeholder generator, to be replaced by the real planter
     ui/
       command.py              the "Create Print Object" command and its dialog
+  mesh_engine/               system-Python mesh backend (textures, SDF, creatures)
   resources/
-    CreatePrintObject/         toolbar icons for the command (currently placeholders)
+    CreatePrintObject/         toolbar icons for the command
+docs/
+  ROADMAP.md                 improvement phases and product-family plans
 ```
 
 ## Adding a new generator
 
-1. Create a new file in `PrintEngine/engine/generators/`, e.g. `planter_basic.py`.
+1. Create a new file in `model-engine/engine/generators/`, e.g. `planter_basic.py`.
 2. Subclass `Generator` (from `engine/base.py`):
 
    ```python
@@ -174,6 +181,7 @@ PrintEngine/
            ParamSpec(name="diameter", label="Diameter", type="float", default=120.0,
                       min=30.0, max=400.0, unit="mm"),
            # ... more parameters
+           # Optional: group="Feet" to place inputs in a named dialog subgroup
        ]
 
        def build(self, component, params):
@@ -385,13 +393,13 @@ PrintEngine/
 
 ## Roadmap / open questions
 
+Formal improvement phases and product-family plans live in
+**[docs/ROADMAP.md](docs/ROADMAP.md)**.
+
+Additional feature notes:
+
 - **Scoops** - both pieces done and both have been through a printability
-  pass (the Loop-Handle Scoop's handle attachment across several rounds -
-  wall placement, interior poke-through, supportless top/bottom, a clean
-  perpendicular wall joint; the Turned-Handle Scoop's neck taper and bead
-  overhangs, see memory for both). The second scoop was originally rebuilt
-  from a screen recording after the first STL-based read of it turned out
-  wrong. Possible later: a flared/fluted bowl option, a matching
+  pass. Possible later: a flared/fluted bowl option, a matching
   stand/holder, engraved capacity markings (mL/oz) using the same
   SketchText approach as the keychain, a loop-handle option for the round
   bowl too.

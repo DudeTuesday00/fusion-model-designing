@@ -64,33 +64,61 @@ def _remove_existing_ui():
         cmd_def.deleteMe()
 
 
+def _add_param_input(children: adsk.core.CommandInputs, spec) -> None:
+    """Adds a single parameter input under `children`."""
+    input_id = f"param_{spec.name}"
+    if spec.type == "float":
+        value_cm = geometry_utils.mm(spec.default) if spec.unit == "mm" else spec.default
+        children.addValueInput(input_id, spec.label, spec.unit,
+                                adsk.core.ValueInput.createByReal(value_cm))
+    elif spec.type == "int":
+        children.addIntegerSpinnerCommandInput(
+            input_id, spec.label, int(spec.min or 0), int(spec.max or 100), 1, int(spec.default)
+        )
+    elif spec.type == "bool":
+        children.addBoolValueInput(input_id, spec.label, True, "", spec.default)
+    elif spec.type == "choice":
+        dropdown = children.addDropDownCommandInput(
+            input_id, spec.label, adsk.core.DropDownStyles.TextListDropDownStyle
+        )
+        for choice in spec.choices:
+            dropdown.listItems.add(str(choice), choice == spec.default)
+    elif spec.type == "string":
+        children.addStringValueInput(input_id, spec.label, str(spec.default))
+    else:
+        raise ValueError(f"Unknown ParamSpec type: {spec.type}")
+
+
 def _rebuild_param_inputs(children: adsk.core.CommandInputs, generator) -> None:
-    """Clears out the parameter group and rebuilds it for the given generator."""
+    """Clears out the parameter group and rebuilds it for the given generator.
+
+    Parameters with a non-empty `group` are placed under nested GroupCommandInputs
+    so related options (Feet, Rim, Texture, ...) stay visually organized.
+    """
     for i in range(children.count - 1, -1, -1):
         children.item(i).deleteMe()
 
+    # Preserve first-seen order of groups while collecting ungrouped params first.
+    group_order = []
+    grouped = {}
+    ungrouped = []
     for spec in generator.parameters:
-        input_id = f"param_{spec.name}"
-        if spec.type == "float":
-            value_cm = geometry_utils.mm(spec.default) if spec.unit == "mm" else spec.default
-            children.addValueInput(input_id, spec.label, spec.unit,
-                                    adsk.core.ValueInput.createByReal(value_cm))
-        elif spec.type == "int":
-            children.addIntegerSpinnerCommandInput(
-                input_id, spec.label, int(spec.min or 0), int(spec.max or 100), 1, int(spec.default)
-            )
-        elif spec.type == "bool":
-            children.addBoolValueInput(input_id, spec.label, True, "", spec.default)
-        elif spec.type == "choice":
-            dropdown = children.addDropDownCommandInput(
-                input_id, spec.label, adsk.core.DropDownStyles.TextListDropDownStyle
-            )
-            for choice in spec.choices:
-                dropdown.listItems.add(str(choice), choice == spec.default)
-        elif spec.type == "string":
-            children.addStringValueInput(input_id, spec.label, str(spec.default))
+        if spec.group:
+            if spec.group not in grouped:
+                grouped[spec.group] = []
+                group_order.append(spec.group)
+            grouped[spec.group].append(spec)
         else:
-            raise ValueError(f"Unknown ParamSpec type: {spec.type}")
+            ungrouped.append(spec)
+
+    for spec in ungrouped:
+        _add_param_input(children, spec)
+
+    for group_name in group_order:
+        subgroup = children.addGroupCommandInput(f"group_{group_name}", group_name)
+        subgroup.isExpanded = True
+        for spec in grouped[group_name]:
+            _add_param_input(subgroup.children, spec)
 
 
 def _read_param_value(input_, spec):
@@ -101,6 +129,21 @@ def _read_param_value(input_, spec):
     if spec.type == "choice":
         return input_.selectedItem.name
     raise ValueError(f"Unknown ParamSpec type: {spec.type}")
+
+
+def _find_param_input(inputs: adsk.core.CommandInputs, name: str):
+    """Finds a param input by id, including nested group children."""
+    direct = inputs.itemById(f"param_{name}")
+    if direct:
+        return direct
+    for i in range(inputs.count):
+        item = inputs.item(i)
+        # GroupCommandInput exposes .children
+        if hasattr(item, "children"):
+            nested = item.children.itemById(f"param_{name}")
+            if nested:
+                return nested
+    return None
 
 
 class _CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
@@ -162,10 +205,12 @@ class _ExecuteHandler(adsk.core.CommandEventHandler):
             dropdown = inputs.itemById("generatorDropdown")
             generator = self._generator_list[dropdown.selectedItem.index]
 
-            params = {
-                spec.name: _read_param_value(inputs.itemById(f"param_{spec.name}"), spec)
-                for spec in generator.parameters
-            }
+            params = {}
+            for spec in generator.parameters:
+                param_input = _find_param_input(inputs.itemById("paramsGroup").children, spec.name)
+                if param_input is None:
+                    raise ValueError(f"Missing dialog input for parameter '{spec.name}'.")
+                params[spec.name] = _read_param_value(param_input, spec)
 
             design = adsk.fusion.Design.cast(_app.activeProduct)
             # Snapshot where existing geometry ends BEFORE building, so the
@@ -185,5 +230,8 @@ class _ExecuteHandler(adsk.core.CommandEventHandler):
             # Fusion leaves loft/profile sketches visible after the build.
             for i in range(pre_sketches, component.sketches.count):
                 component.sketches.item(i).isVisible = False
+        except ValueError as exc:
+            # User-facing validation failures from generators: clean message only.
+            _ui.messageBox(str(exc), "Print Engine")
         except Exception:
             _ui.messageBox(f"Print Engine failed to build object:\n{traceback.format_exc()}")

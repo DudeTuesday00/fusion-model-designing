@@ -4,9 +4,12 @@ To add a new generator: create a module in this folder, define a Generator
 subclass in it decorated with @registry.register, then import that module
 here. Nothing else needs to change - the UI discovers generators through
 registry.list_all().
+
+The example_cylinder module is intentionally not imported so the placeholder
+stays out of the Object Type dropdown in normal use. Keep the file as a
+minimal reference for writing new generators.
 """
 
-from . import example_cylinder  # noqa: F401
 from . import planter_basic  # noqa: F401
 from . import planter_drip_tray  # noqa: F401
 from . import planter_drip_tray_textured  # noqa: F401
