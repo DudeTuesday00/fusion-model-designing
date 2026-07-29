@@ -8,35 +8,31 @@ Last updated: 2026-07-29
 
 ## Part 1: Improvement Phases 1–3
 
-### Phase 1 – Quick Wins (1–2 focused sessions)
+### Phase 1 – Quick Wins — **DONE**
 **Goal:** Clean the codebase and improve daily usability with low risk.
 
-| # | Task | Details | Acceptance Criteria |
-|---|------|---------|---------------------|
-| 1.1 | Remove / gate Example Cylinder | Delete or move `example_cylinder.py` behind a debug flag / only register when an environment variable is set. | Generator no longer appears in the “Create Print Object” dropdown in normal use. |
-| 1.2 | Add proper `.gitignore` | Ignore `__pycache__/`, `*.pyc`, `.vscode/`, `generated/`, `*.stl` (or keep a sample), OS files, etc. | Clean `git status` after building objects. |
-| 1.3 | Improve validation error presentation | In `engine/ui/command.py` execute handler, catch `ValueError` from generators and show a clean message box (title + message) instead of full traceback. Keep traceback for unexpected exceptions. | User-facing parameter errors are readable; real bugs still show full stack. |
-| 1.4 | Group parameters in dialog | Use nested `GroupCommandInput`s (or collapse states) for Feet, Rim, Texture/Flute sections. Show feet group only when Base Style ≠ “Flat”. | Dialog is less overwhelming; related parameters are visually grouped. |
-
-**Phase 1 Exit Criteria:** Cleaner repo, better error UX, tidier dialog. No functional regression on existing generators.
+| # | Task | Status |
+|---|------|--------|
+| 1.1 | Remove / gate Example Cylinder | Done — not registered in normal builds |
+| 1.2 | Add proper `.gitignore` | Done |
+| 1.3 | Improve validation error presentation | Done — clean `ValueError` message boxes |
+| 1.4 | Group parameters in dialog | Done — `ParamSpec.group` + nested groups |
 
 ---
 
-### Phase 2 – Matching & UX (2–4 sessions)
+### Phase 2 – Matching & UX — **DONE**
 **Goal:** Reduce friction between related parts and make the tool feel more professional.
 
-| # | Task | Details | Acceptance Criteria |
-|---|------|---------|---------------------|
-| 2.1 | Combined “Planter + Matching Drip Tray” generator | New generator that takes planter parameters + tray options and builds both bodies (or two components) with consistent clearances, shape, and style. Reuse existing `planter_basic` / `planter_drip_tray` logic via composition or shared helpers. | One dialog produces a correctly matched pair. |
-| 2.2 | Command Preview support | Implement `executePreview` handler so parameter changes update a temporary preview body (or hide/show). | Users see live geometry while adjusting values. |
-| 2.3 | Last-values persistence | Store last-used parameter values per generator ID (JSON in add-in folder or Fusion preferences). Load on dialog open. | Dialog remembers previous settings for each generator type. |
-| 2.4 | Optional: “Match Selected Body” mode | For trays/inserts: allow selecting an existing planter body and auto-populate key dimensions (via attributes stored on the component or bounding-box heuristics). | Advanced workflow for existing designs. |
-
-**Phase 2 Exit Criteria:** Matched planter+tray is one-click; dialog is more pleasant and remembers settings.
+| # | Task | Status |
+|---|------|--------|
+| 2.1 | Combined “Planter + Matching Drip Tray” generator | Done — `planter_with_tray.py` |
+| 2.2 | Command Preview support | Done — `executePreview` for B-rep generators |
+| 2.3 | Last-values persistence | Done — `engine/prefs.py` + `last_params.json` |
+| 2.4 | Optional: “Match Selected Body” mode | Deferred (nice-to-have) |
 
 ---
 
-### Phase 3 – Robustness & Polish (3–5 sessions)
+### Phase 3 – Robustness & Polish (next)
 **Goal:** Make the engine more maintainable and production-ready for product lines.
 
 | # | Task | Details | Acceptance Criteria |
@@ -125,11 +121,10 @@ These benefit from the texture/mesh backend and the insert pattern.
 
 ## Recommended Execution Sequence
 
-1. **Finish Phase 1** (quick wins) — do this first; it makes everything else cleaner.
-2. **Phase 2.1** — Combined Planter + Matching Tray (immediate value for current users).
-3. **Start Family A** — Basic Box + Matching Lid (highest new commercial potential).
-4. Continue Phase 2 (preview + persistence) and Phase 3 in parallel with new generators as needed.
-5. Expand into stackable boxes and desk items once the core box + lid pattern is solid.
+1. ~~**Finish Phase 1**~~ Done.
+2. ~~**Phase 2**~~ Done (combined generator, preview, last-values).
+3. **Phase 3** and/or **Family A** (Basic Box + Matching Lid) next.
+4. Expand into stackable boxes and desk items once the core box + lid pattern is solid.
 
 ---
 

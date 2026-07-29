@@ -4,6 +4,11 @@ The dialog has a dropdown of every registered generator (see engine/registry.py)
 and a group of inputs that gets rebuilt to match whichever generator is
 selected. Adding a new generator elsewhere in the codebase makes it show up
 here automatically - this file has no knowledge of specific generators.
+
+Supports:
+- Parameter subgroups via ParamSpec.group
+- Last-used values loaded/saved per generator (engine/prefs.py)
+- Live preview via executePreview (rebuilds geometry as parameters change)
 """
 
 import os
@@ -14,6 +19,7 @@ import adsk.fusion
 
 from .. import geometry_utils
 from .. import generators  # noqa: F401 - importing this registers all generators
+from .. import prefs
 from .. import registry
 
 _app = adsk.core.Application.get()
@@ -64,41 +70,60 @@ def _remove_existing_ui():
         cmd_def.deleteMe()
 
 
-def _add_param_input(children: adsk.core.CommandInputs, spec) -> None:
-    """Adds a single parameter input under `children`."""
+def _add_param_input(children: adsk.core.CommandInputs, spec, saved_value=None) -> None:
+    """Adds a single parameter input under `children`, optionally prefilled."""
     input_id = f"param_{spec.name}"
+    default = saved_value if saved_value is not None else spec.default
+
     if spec.type == "float":
-        value_cm = geometry_utils.mm(spec.default) if spec.unit == "mm" else spec.default
+        try:
+            default = float(default)
+        except (TypeError, ValueError):
+            default = spec.default
+        value_cm = geometry_utils.mm(default) if spec.unit == "mm" else default
         children.addValueInput(input_id, spec.label, spec.unit,
                                 adsk.core.ValueInput.createByReal(value_cm))
     elif spec.type == "int":
+        try:
+            default = int(default)
+        except (TypeError, ValueError):
+            default = int(spec.default)
         children.addIntegerSpinnerCommandInput(
-            input_id, spec.label, int(spec.min or 0), int(spec.max or 100), 1, int(spec.default)
+            input_id, spec.label, int(spec.min or 0), int(spec.max or 100), 1, default
         )
     elif spec.type == "bool":
-        children.addBoolValueInput(input_id, spec.label, True, "", spec.default)
+        if not isinstance(default, bool):
+            default = bool(default)
+        children.addBoolValueInput(input_id, spec.label, True, "", default)
     elif spec.type == "choice":
         dropdown = children.addDropDownCommandInput(
             input_id, spec.label, adsk.core.DropDownStyles.TextListDropDownStyle
         )
+        default_str = str(default)
+        matched = False
         for choice in spec.choices:
-            dropdown.listItems.add(str(choice), choice == spec.default)
+            is_selected = str(choice) == default_str
+            if is_selected:
+                matched = True
+            dropdown.listItems.add(str(choice), is_selected)
+        if not matched and dropdown.listItems.count > 0:
+            dropdown.listItems.item(0).isSelected = True
     elif spec.type == "string":
-        children.addStringValueInput(input_id, spec.label, str(spec.default))
+        children.addStringValueInput(input_id, spec.label, str(default))
     else:
         raise ValueError(f"Unknown ParamSpec type: {spec.type}")
 
 
-def _rebuild_param_inputs(children: adsk.core.CommandInputs, generator) -> None:
+def _rebuild_param_inputs(children: adsk.core.CommandInputs, generator,
+                           saved: dict = None) -> None:
     """Clears out the parameter group and rebuilds it for the given generator.
 
-    Parameters with a non-empty `group` are placed under nested GroupCommandInputs
-    so related options (Feet, Rim, Texture, ...) stay visually organized.
+    Parameters with a non-empty `group` are placed under nested GroupCommandInputs.
     """
+    saved = saved or {}
     for i in range(children.count - 1, -1, -1):
         children.item(i).deleteMe()
 
-    # Preserve first-seen order of groups while collecting ungrouped params first.
     group_order = []
     grouped = {}
     ungrouped = []
@@ -112,13 +137,13 @@ def _rebuild_param_inputs(children: adsk.core.CommandInputs, generator) -> None:
             ungrouped.append(spec)
 
     for spec in ungrouped:
-        _add_param_input(children, spec)
+        _add_param_input(children, spec, saved.get(spec.name))
 
     for group_name in group_order:
         subgroup = children.addGroupCommandInput(f"group_{group_name}", group_name)
         subgroup.isExpanded = True
         for spec in grouped[group_name]:
-            _add_param_input(subgroup.children, spec)
+            _add_param_input(subgroup.children, spec, saved.get(spec.name))
 
 
 def _read_param_value(input_, spec):
@@ -138,12 +163,41 @@ def _find_param_input(inputs: adsk.core.CommandInputs, name: str):
         return direct
     for i in range(inputs.count):
         item = inputs.item(i)
-        # GroupCommandInput exposes .children
         if hasattr(item, "children"):
             nested = item.children.itemById(f"param_{name}")
             if nested:
                 return nested
     return None
+
+
+def _collect_params(inputs: adsk.core.CommandInputs, generator) -> dict:
+    params_group = inputs.itemById("paramsGroup")
+    children = params_group.children
+    params = {}
+    for spec in generator.parameters:
+        param_input = _find_param_input(children, spec.name)
+        if param_input is None:
+            raise ValueError(f"Missing dialog input for parameter '{spec.name}'.")
+        params[spec.name] = _read_param_value(param_input, spec)
+    return params
+
+
+def _build_into_design(generator, params: dict):
+    """Shared geometry path for execute and executePreview."""
+    design = adsk.fusion.Design.cast(_app.activeProduct)
+    prior_max_x = geometry_utils.max_body_x(design)
+
+    component = geometry_utils.new_component(design, generator.display_name)
+    pre_count = component.bRepBodies.count
+    pre_sketches = component.sketches.count
+    generator.build(component, params)
+
+    new_bodies = [component.bRepBodies.item(i)
+                  for i in range(pre_count, component.bRepBodies.count)]
+    geometry_utils.place_clear_of_existing(component, new_bodies, prior_max_x)
+
+    for i in range(pre_sketches, component.sketches.count):
+        component.sketches.item(i).isVisible = False
 
 
 class _CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
@@ -154,24 +208,36 @@ class _CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
                 _ui.messageBox("No generators are registered yet.")
                 return
 
-            inputs = args.command.commandInputs
+            cmd = args.command
+            inputs = cmd.commandInputs
+
+            # Preview can be expensive for mesh generators; still enable so
+            # B-rep objects update live. Mesh backends will show the final
+            # message box only on OK.
+            cmd.isExecutedWhenPreEmpted = False
 
             dropdown = inputs.addDropDownCommandInput(
-                "generatorDropdown", "Object Type", adsk.core.DropDownStyles.TextListDropDownStyle
+                "generatorDropdown", "Object Type",
+                adsk.core.DropDownStyles.TextListDropDownStyle
             )
             for i, gen in enumerate(generator_list):
                 dropdown.listItems.add(f"{gen.category}: {gen.display_name}", i == 0)
 
             params_group = inputs.addGroupCommandInput("paramsGroup", "Parameters")
             params_group.isExpanded = True
-            _rebuild_param_inputs(params_group.children, generator_list[0])
+            saved = prefs.load_for(generator_list[0].id)
+            _rebuild_param_inputs(params_group.children, generator_list[0], saved)
 
             on_input_changed = _InputChangedHandler(generator_list)
-            args.command.inputChanged.add(on_input_changed)
+            cmd.inputChanged.add(on_input_changed)
             _handlers.append(on_input_changed)
 
+            on_preview = _PreviewHandler(generator_list)
+            cmd.executePreview.add(on_preview)
+            _handlers.append(on_preview)
+
             on_execute = _ExecuteHandler(generator_list)
-            args.command.execute.add(on_execute)
+            cmd.execute.add(on_execute)
             _handlers.append(on_execute)
         except Exception:
             _ui.messageBox(f"Failed to create Print Engine dialog:\n{traceback.format_exc()}")
@@ -189,9 +255,45 @@ class _InputChangedHandler(adsk.core.InputChangedEventHandler):
             dropdown = args.inputs.itemById("generatorDropdown")
             generator = self._generator_list[dropdown.selectedItem.index]
             params_group = args.inputs.itemById("paramsGroup")
-            _rebuild_param_inputs(params_group.children, generator)
+            saved = prefs.load_for(generator.id)
+            _rebuild_param_inputs(params_group.children, generator, saved)
         except Exception:
             _ui.messageBox(f"Print Engine failed to update dialog:\n{traceback.format_exc()}")
+
+
+class _PreviewHandler(adsk.core.CommandEventHandler):
+    """Rebuilds geometry while the dialog is open so changes are visible live.
+
+    Fusion discards preview geometry if the user cancels; OK promotes it via
+    execute (we rebuild there too for a clean final result).
+    """
+
+    def __init__(self, generator_list):
+        super().__init__()
+        self._generator_list = generator_list
+
+    def notify(self, args: adsk.core.CommandEventArgs):
+        try:
+            inputs = args.command.commandInputs
+            dropdown = inputs.itemById("generatorDropdown")
+            generator = self._generator_list[dropdown.selectedItem.index]
+
+            # Skip live preview for mesh-backend generators - they write STLs
+            # via subprocess and are too heavy / non-transactional for preview.
+            if getattr(generator, "id", "").endswith("_textured") or \
+               "mesh" in getattr(generator, "id", "") or \
+               generator.category in ("Creature",):
+                args.isValidResult = False
+                return
+
+            params = _collect_params(inputs, generator)
+            _build_into_design(generator, params)
+            args.isValidResult = True
+        except ValueError:
+            # Invalid parameters during drag: keep previous valid preview.
+            args.isValidResult = False
+        except Exception:
+            args.isValidResult = False
 
 
 class _ExecuteHandler(adsk.core.CommandEventHandler):
@@ -205,33 +307,10 @@ class _ExecuteHandler(adsk.core.CommandEventHandler):
             dropdown = inputs.itemById("generatorDropdown")
             generator = self._generator_list[dropdown.selectedItem.index]
 
-            params = {}
-            for spec in generator.parameters:
-                param_input = _find_param_input(inputs.itemById("paramsGroup").children, spec.name)
-                if param_input is None:
-                    raise ValueError(f"Missing dialog input for parameter '{spec.name}'.")
-                params[spec.name] = _read_param_value(param_input, spec)
-
-            design = adsk.fusion.Design.cast(_app.activeProduct)
-            # Snapshot where existing geometry ends BEFORE building, so the
-            # new object can be slid in next to it instead of on top of it.
-            prior_max_x = geometry_utils.max_body_x(design)
-
-            component = geometry_utils.new_component(design, generator.display_name)
-            pre_count = component.bRepBodies.count
-            pre_sketches = component.sketches.count
-            generator.build(component, params)
-
-            new_bodies = [component.bRepBodies.item(i)
-                          for i in range(pre_count, component.bRepBodies.count)]
-            geometry_utils.place_clear_of_existing(component, new_bodies, prior_max_x)
-
-            # Hide the construction sketches so they don't clutter the view -
-            # Fusion leaves loft/profile sketches visible after the build.
-            for i in range(pre_sketches, component.sketches.count):
-                component.sketches.item(i).isVisible = False
+            params = _collect_params(inputs, generator)
+            prefs.save_for(generator.id, params)
+            _build_into_design(generator, params)
         except ValueError as exc:
-            # User-facing validation failures from generators: clean message only.
             _ui.messageBox(str(exc), "Print Engine")
         except Exception:
             _ui.messageBox(f"Print Engine failed to build object:\n{traceback.format_exc()}")

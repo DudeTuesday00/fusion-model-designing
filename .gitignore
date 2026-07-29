@@ -26,9 +26,10 @@ generated/
 *.stl
 *.3mf
 
-# Local secrets / env
+# Local secrets / env / runtime prefs
 .env
 *.local
+model-engine/last_params.json
 
 # Fusion / temp
 *.tmp
