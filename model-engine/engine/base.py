@@ -34,12 +34,16 @@ class Generator(ABC):
     class attributes, then implement build(). See
     engine/generators/example_cylinder.py for the simplest possible example
     (kept as a reference; not registered in normal builds).
+
+    Set supports_preview = False for mesh/SDF backends that write files via
+    subprocess - those must only run on OK, never during dialog preview.
     """
 
     id: str = ""
     display_name: str = ""
     category: str = ""  # e.g. "Planter", "Creature", "Aquarium Decor"
     parameters: list = []
+    supports_preview: bool = True
 
     @abstractmethod
     def build(self, component, params: dict) -> None:

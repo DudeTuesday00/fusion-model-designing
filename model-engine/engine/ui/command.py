@@ -7,8 +7,8 @@ here automatically - this file has no knowledge of specific generators.
 
 Supports:
 - Parameter subgroups via ParamSpec.group
-- Last-used values loaded/saved per generator (engine/prefs.py)
-- Live preview via executePreview (temporary only; OK always runs execute)
+- Last-used values + last generator (engine/prefs.py)
+- Live preview for B-rep only (mesh/SDF never preview — they write STLs)
 """
 
 import os
@@ -38,13 +38,22 @@ _RESOURCE_FOLDER = os.path.abspath(os.path.join(_THIS_DIR, "..", "..", "resource
 # so every handler we create gets appended here to keep it alive.
 _handlers = []
 
-# Generators that are too heavy or non-transactional for live preview.
+# Extra explicit skip list (mesh backends should also set supports_preview=False).
 _SKIP_PREVIEW_IDS = {
-    "planter_with_tray",  # full planter + tray is too expensive on every change
+    "planter_with_tray",
     "planter_textured",
     "planter_drip_tray_textured",
     "planter_tray_mesh",
     "creature_axolotl",
+    "aquarium_rock",
+    "aquarium_brain_coral",
+    "aquarium_finger_coral",
+    "aquarium_log",
+    "aquarium_tire_pile",
+    "aquarium_anchor",
+    "aquarium_sunken_ship",
+    "aquarium_staghorn_coral",
+    "aquarium_rock_cave",
 }
 
 
@@ -199,6 +208,9 @@ def _collect_params(inputs: adsk.core.CommandInputs, generator) -> dict:
 
 
 def _should_skip_preview(generator) -> bool:
+    """Mesh/SDF backends write files via subprocess — never safe in preview."""
+    if not getattr(generator, "supports_preview", True):
+        return True
     gen_id = getattr(generator, "id", "") or ""
     if gen_id in _SKIP_PREVIEW_IDS:
         return True
@@ -227,6 +239,23 @@ def _build_into_design(generator, params: dict):
         component.sketches.item(i).isVisible = False
 
 
+def _default_generator_index(generator_list) -> int:
+    last_id = prefs.load_last_generator_id()
+    if last_id:
+        for i, gen in enumerate(generator_list):
+            if gen.id == last_id:
+                return i
+    # Prefer a safe B-rep starter over the first alphabetical mesh item (Anchor).
+    for preferred in ("planter_basic", "planter_with_tray", "aquarium_treasure_chest"):
+        for i, gen in enumerate(generator_list):
+            if gen.id == preferred:
+                return i
+    for i, gen in enumerate(generator_list):
+        if not _should_skip_preview(gen):
+            return i
+    return 0
+
+
 class _CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
     def notify(self, args: adsk.core.CommandCreatedEventArgs):
         try:
@@ -240,17 +269,19 @@ class _CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
 
             cmd.isExecutedWhenPreEmpted = False
 
+            start_index = _default_generator_index(generator_list)
+
             dropdown = inputs.addDropDownCommandInput(
                 "generatorDropdown", "Object Type",
                 adsk.core.DropDownStyles.TextListDropDownStyle
             )
             for i, gen in enumerate(generator_list):
-                dropdown.listItems.add(f"{gen.category}: {gen.display_name}", i == 0)
+                dropdown.listItems.add(f"{gen.category}: {gen.display_name}", i == start_index)
 
             params_group = inputs.addGroupCommandInput("paramsGroup", "Parameters")
             params_group.isExpanded = True
-            saved = prefs.load_for(generator_list[0].id)
-            _rebuild_param_inputs(params_group.children, generator_list[0], saved)
+            saved = prefs.load_for(generator_list[start_index].id)
+            _rebuild_param_inputs(params_group.children, generator_list[start_index], saved)
 
             on_input_changed = _InputChangedHandler(generator_list)
             cmd.inputChanged.add(on_input_changed)
@@ -278,6 +309,7 @@ class _InputChangedHandler(adsk.core.InputChangedEventHandler):
                 return
             dropdown = args.inputs.itemById("generatorDropdown")
             generator = self._generator_list[dropdown.selectedItem.index]
+            prefs.save_last_generator_id(generator.id)
             params_group = args.inputs.itemById("paramsGroup")
             group = adsk.core.GroupCommandInput.cast(params_group)
             if not group:
@@ -289,11 +321,10 @@ class _InputChangedHandler(adsk.core.InputChangedEventHandler):
 
 
 class _PreviewHandler(adsk.core.CommandEventHandler):
-    """Shows temporary geometry while the dialog is open.
+    """Shows temporary B-rep geometry while the dialog is open.
 
-    IMPORTANT: always leave isValidResult = False so Fusion still fires the
-    execute handler on OK. If isValidResult is True, Fusion may skip execute
-    entirely, which is why OK appeared to do nothing for complex builds.
+    Always leaves isValidResult = False so OK runs execute for the permanent
+    build. Mesh/SDF generators are never previewed (they write STL files).
     """
 
     def __init__(self, generator_list):
@@ -301,8 +332,6 @@ class _PreviewHandler(adsk.core.CommandEventHandler):
         self._generator_list = generator_list
 
     def notify(self, args: adsk.core.CommandEventArgs):
-        # Never treat preview as the final result — execute always owns the
-        # permanent build + preference save.
         args.isValidResult = False
         try:
             inputs = args.command.commandInputs
@@ -315,9 +344,9 @@ class _PreviewHandler(adsk.core.CommandEventHandler):
             params = _collect_params(inputs, generator)
             _build_into_design(generator, params)
         except ValueError:
-            pass  # invalid params during edit — no preview until fixed
+            pass
         except Exception:
-            pass  # keep dialog responsive; execute will surface real errors
+            pass
 
 
 class _ExecuteHandler(adsk.core.CommandEventHandler):

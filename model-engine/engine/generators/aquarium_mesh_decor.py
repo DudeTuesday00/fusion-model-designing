@@ -6,6 +6,9 @@ same settings + different seed = a different individual rock or coral, so
 you can print a whole natural-looking cluster from one dialog.
 
 Print in PLA or PETG; rinse before tank use.
+
+supports_preview = False: mesh generation runs a subprocess and writes a file;
+it must only happen on OK, never during dialog preview.
 """
 
 from ..base import Generator, ParamSpec
@@ -41,6 +44,7 @@ class AquariumRock(Generator):
     id = "aquarium_rock"
     display_name = "Rock"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="width", label="Width", type="float", default=80.0,
                   min=15.0, max=300.0, unit="mm"),
@@ -67,6 +71,7 @@ class BrainCoral(Generator):
     id = "aquarium_brain_coral"
     display_name = "Brain Coral"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="diameter", label="Diameter", type="float", default=90.0,
                   min=25.0, max=250.0, unit="mm"),
@@ -89,6 +94,7 @@ class FingerCoral(Generator):
     id = "aquarium_finger_coral"
     display_name = "Finger Coral"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="base_diameter", label="Base Diameter", type="float",
                   default=70.0, min=25.0, max=200.0, unit="mm"),
@@ -116,6 +122,7 @@ class AquariumLog(Generator):
     id = "aquarium_log"
     display_name = "Hollow Log"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="length", label="Length", type="float", default=150.0,
                   min=60.0, max=300.0, unit="mm"),
@@ -140,6 +147,7 @@ class TirePile(Generator):
     id = "aquarium_tire_pile"
     display_name = "Tire Pile"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="tire_diameter", label="Tire Diameter", type="float",
                   default=90.0, min=40.0, max=200.0, unit="mm"),
@@ -162,6 +170,7 @@ class Anchor(Generator):
     id = "aquarium_anchor"
     display_name = "Anchor"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="height", label="Height", type="float", default=120.0,
                   min=50.0, max=250.0, unit="mm"),
@@ -178,6 +187,7 @@ class SunkenShip(Generator):
     id = "aquarium_sunken_ship"
     display_name = "Sunken Ship"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="length", label="Hull Length", type="float", default=160.0,
                   min=80.0, max=350.0, unit="mm"),
@@ -211,6 +221,7 @@ class StaghornCoral(Generator):
     id = "aquarium_staghorn_coral"
     display_name = "Staghorn Coral (branching)"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="height", label="Height", type="float", default=95.0,
                   min=30.0, max=250.0, unit="mm"),
@@ -235,6 +246,7 @@ class RockCave(Generator):
     id = "aquarium_rock_cave"
     display_name = "Rock Cave / Arch"
     category = "Aquarium Decor"
+    supports_preview = False
     parameters = [
         ParamSpec(name="width", label="Width", type="float", default=110.0,
                   min=50.0, max=300.0, unit="mm"),

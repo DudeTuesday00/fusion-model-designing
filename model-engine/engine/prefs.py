@@ -1,4 +1,4 @@
-"""Persist last-used parameter values per generator.
+"""Persist last-used parameter values and last-selected generator.
 
 Stored as JSON next to the add-in so settings survive Fusion restarts without
 touching Fusion's own preference system.
@@ -9,6 +9,7 @@ import os
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PREFS_PATH = os.path.abspath(os.path.join(_THIS_DIR, "..", "last_params.json"))
+_LAST_GENERATOR_KEY = "__last_generator_id__"
 
 
 def load_all() -> dict:
@@ -21,12 +22,12 @@ def load_all() -> dict:
 
 
 def load_for(generator_id: str) -> dict:
-    return load_all().get(generator_id, {})
+    data = load_all().get(generator_id, {})
+    return data if isinstance(data, dict) else {}
 
 
 def save_for(generator_id: str, params: dict) -> None:
     data = load_all()
-    # JSON-friendly values only
     clean = {}
     for key, value in params.items():
         if isinstance(value, (str, int, float, bool)) or value is None:
@@ -34,6 +35,22 @@ def save_for(generator_id: str, params: dict) -> None:
         else:
             clean[key] = str(value)
     data[generator_id] = clean
+    data[_LAST_GENERATOR_KEY] = generator_id
+    _write(data)
+
+
+def load_last_generator_id() -> str:
+    value = load_all().get(_LAST_GENERATOR_KEY, "")
+    return value if isinstance(value, str) else ""
+
+
+def save_last_generator_id(generator_id: str) -> None:
+    data = load_all()
+    data[_LAST_GENERATOR_KEY] = generator_id
+    _write(data)
+
+
+def _write(data: dict) -> None:
     try:
         with open(_PREFS_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, sort_keys=True)

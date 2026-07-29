@@ -21,6 +21,7 @@ class TexturedPlanter(Generator):
     id = "planter_textured"
     display_name = "Textured Planter (Mesh/STL)"
     category = "Planter"
+    supports_preview = False
     parameters = [
         ParamSpec(name="texture", label="Texture", type="choice", default="Knurl",
                   choices=["None", "Knurl", "Scales", "Pinecone", "Pleats", "Pills",
