@@ -4,6 +4,8 @@ A low-profile rectangular box for power bricks and excess cable. Side slots
 let cords enter/exit. Lid uses the same friction-lip pattern as storage boxes.
 """
 
+import adsk.core
+
 from .. import geometry_utils
 from ..base import Generator, ParamSpec
 from ..printability import require_base_below_height, require_min_wall
@@ -30,11 +32,11 @@ class DeskCableBox(Generator):
         ParamSpec(name="corner_radius", label="Corner Radius", type="float",
                   default=8.0, min=0.0, max=40.0, unit="mm"),
         ParamSpec(name="slot_width", label="Cable Slot Width", type="float",
-                  default=18.0, min=6.0, max=40.0, unit="mm", group="Cable Slots"),
+                  default=18.0, min=6.0, max=40.0, unit="mm", group="CableSlots"),
         ParamSpec(name="slot_height", label="Cable Slot Height", type="float",
-                  default=12.0, min=4.0, max=40.0, unit="mm", group="Cable Slots"),
+                  default=12.0, min=4.0, max=40.0, unit="mm", group="CableSlots"),
         ParamSpec(name="slot_count", label="Slots per long side", type="int",
-                  default=2, min=0, max=4, group="Cable Slots"),
+                  default=2, min=0, max=4, group="CableSlots"),
         ParamSpec(name="include_lid", label="Include lid", type="bool",
                   default=True),
         ParamSpec(name="lid_thickness", label="Lid Thickness", type="float",
@@ -65,7 +67,6 @@ class DeskCableBox(Generator):
         body = geometry_utils.extrude_profile(component, _outer_profile(sketch), height)
         body.name = "CableBox"
 
-        # Cavity
         cavity_plane = geometry_utils.offset_plane(component, base)
         cavity = component.sketches.add(cavity_plane)
         _draw_rounded_rect(
@@ -77,7 +78,6 @@ class DeskCableBox(Generator):
             component, _outer_profile(cavity),
             height - base + mm(2), participants=[body])
 
-        # Cable slots on both long sides (±Y)
         slot_w = mm(params["slot_width"])
         slot_h = mm(params["slot_height"])
         n_slots = int(params["slot_count"])
@@ -90,7 +90,6 @@ class DeskCableBox(Generator):
                     frac = (i + 1) / (n_slots + 1)
                     x = -length / 2 + length * frac
                     slot_sk = component.sketches.add(plane)
-                    # Rectangle in XY at height slot_z0; extrude both ways in Y
                     half_w = slot_w / 2.0
                     pts = [
                         slot_sk.modelToSketchSpace(
