@@ -4,47 +4,32 @@ Last updated: 2026-07-29
 
 ---
 
-## Part 1: Improvement Phases 1–3
+## Part 1: Improvement Phases 1–3 — **DONE**
 
-### Phase 1 – Quick Wins — **DONE**
-| # | Task | Status |
-|---|------|--------|
-| 1.1 | Gate Example Cylinder | Done |
-| 1.2 | `.gitignore` | Done |
-| 1.3 | Clean validation errors | Done |
-| 1.4 | Parameter groups | Done |
-
-### Phase 2 – Matching & UX — **DONE**
-| # | Task | Status |
-|---|------|--------|
-| 2.1 | Combined Planter + Matching Tray | Done |
-| 2.2 | Command preview (B-rep) | Done |
-| 2.3 | Last-values + last generator | Done |
-| 2.4 | Match Selected Body | Deferred |
-
-### Phase 3 – Robustness & Polish — **DONE**
-| # | Task | Status |
-|---|------|--------|
-| 3.1 | Units module + geometry_utils compatibility | Done (`engine/units.py`) |
-| 3.2 | Printability helpers | Done (`engine/printability.py`) |
-| 3.3 | Export helper command | Done — **Export Print Bodies** (STL/3MF) |
-| 3.4 | Named multi-body output | Done — bodies named after generator |
-| 3.5 | Roadmap / docs kept current | Done |
+See commit history for Phase 1–3 details (UX, matching, export, printability).
 
 ---
 
-## Part 2: New Product Families (next focus)
+## Part 2: Product Families
 
-### Family A: Storage Ecosystem (Highest Priority)
-1. Basic Box + Matching Lid
-2. Stackable Box variant
-3. Box Insert / Divider
+### Family A: Storage Ecosystem — **DONE (core)**
+| Generator | Status |
+|-----------|--------|
+| Box + Matching Lid | Done |
+| Stackable Box + Lid | Done |
+| Box Grid Insert / Divider | Done |
+
+### Family C: Desk & Office — **IN PROGRESS**
+| Generator | Status |
+|-----------|--------|
+| Pen / Pencil Cup (+ optional tray) | Done |
+| Phone / Tablet Stand | Done |
+| Cable Management Box + Lid | Done |
+| Monitor / laptop riser | Planned |
+| Multi-item dock | Planned |
 
 ### Family B: Expanded Planter / Garden
-- Stackable tiers, tower modules, Terracotta tray consistency
-
-### Family C: Desk & Office
-- Pen cup, cable box, stands, docks
+- Stackable planter tiers, tower modules, Terracotta tray consistency
 
 ### Family D: Higher-margin products
 - Keepsake boxes, wall organizers, gear cases
@@ -53,4 +38,4 @@ Last updated: 2026-07-29
 
 ## Recommended next step
 
-**Family A — Basic Box + Matching Lid** generator (reuse wall/base/lid clearance patterns from planters and drip trays).
+**Monitor / laptop riser** with cable routing, or planter stackable tiers.

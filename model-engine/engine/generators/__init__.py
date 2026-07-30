@@ -22,6 +22,9 @@ from . import planter_with_tray  # noqa: F401
 from . import box_basic  # noqa: F401
 from . import box_stackable  # noqa: F401
 from . import box_insert  # noqa: F401
+from . import desk_pen_cup  # noqa: F401
+from . import desk_phone_stand  # noqa: F401
+from . import desk_cable_box  # noqa: F401
 from . import aquarium_treasure_chest  # noqa: F401
 from . import aquarium_castle_tower  # noqa: F401
 from . import aquarium_mesh_decor  # noqa: F401
